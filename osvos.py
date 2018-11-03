@@ -614,7 +614,12 @@ def test(dataset, checkpoint_file, result_path, config=None):
     result_path: Path to save the output images
     config: Reference to a Configuration object used in the creation of a Session
     Returns:
+        preds: prediction masks
+        labels: ground truth masks
     """
+    
+    checkpoint_file = os.path.join(os.getcwd(), 'OSVOS-TensorFlow', checkpoint_file)
+    
     if config is None:
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -635,6 +640,9 @@ def test(dataset, checkpoint_file, result_path, config=None):
     # Create a saver to load the network
     saver = tf.train.Saver([v for v in tf.global_variables() if '-up' not in v.name and '-cr' not in v.name])
 
+    preds = []
+    labels = []
+    
     with tf.Session(config=config) as sess:
         sess.run(tf.global_variables_initializer())
         sess.run(interp_surgery(tf.global_variables()))
@@ -642,14 +650,18 @@ def test(dataset, checkpoint_file, result_path, config=None):
         if not os.path.exists(result_path):
             os.makedirs(result_path)
         for frame in range(0, dataset.get_test_size()):
-            img, curr_img = dataset.next_batch(batch_size, 'test')
-            curr_frame_orig_name = os.path.split(curr_img[0])[1]
-            curr_frame = os.path.splitext(curr_frame_orig_name)[0] + '.png'
+            img, label = dataset.next_batch(batch_size, 'test')
             image = preprocess_img(img[0])
             res = sess.run(probabilities, feed_dict={input_image: image})
             res_np = res.astype(np.float32)[0, :, :, 0] > 162.0/255.0
-            scipy.misc.imsave(os.path.join(result_path, curr_frame), res_np.astype(np.float32))
-            print('Saving ' + os.path.join(result_path, curr_frame))
+            res_np = res_np.astype(np.float32)
+            
+            preds.append(res_np)
+            labels.append(label)
+            
+            print('Predicted for frame ', frame)
+            
+    return preds, labels
 
 
 

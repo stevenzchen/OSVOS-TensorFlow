@@ -617,9 +617,6 @@ def test(dataset, checkpoint_file, result_path, config=None):
         preds: prediction masks
         labels: ground truth masks
     """
-    
-    checkpoint_file = os.path.join(os.getcwd(), 'OSVOS-TensorFlow', checkpoint_file)
-    
     if config is None:
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -658,8 +655,6 @@ def test(dataset, checkpoint_file, result_path, config=None):
             
             preds.append(res_np)
             labels.append(label)
-            
-            print('Predicted for frame ', frame)
             
     return imgs, preds, labels
 

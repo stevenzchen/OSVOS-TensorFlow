@@ -40,6 +40,7 @@ training_stride = FLAGS.training_stride
 stats_path = FLAGS.stats_path
 start_frame = FLAGS.start_frame
 # this height and width should be the network's 480p input resolution
+# default: (480, 854)
 height = FLAGS.height
 width = FLAGS.width
 sequence = FLAGS.sequence
@@ -60,60 +61,70 @@ class_fp = np.zeros(num_classes, np.float32)
 class_fn = np.zeros(num_classes, np.float32)
 class_iou = np.zeros(num_classes, np.float32)
 
-# Train parameters
+# training parameters
 parent_path = os.path.join(os.getcwd(), 'OSVOS-TensorFlow', 'models', 'OSVOS_parent', 'OSVOS_parent.ckpt-50000')
 logs_path = os.path.join(os.getcwd(), 'OSVOS-TensorFlow', 'models', sequence)
-max_training_iters = 500 # TODO: this defaults to 500
+
+ckpt_path = parent_path
+
+# NOTE: this defaults to 500 (30 sec runtime on GCE V100)
+max_training_iters = 500
 
 # initialize dataset
 dataset = osvos_dataset.OSVOS_Dataset(sequence, dataset_dir, sequence_limit, training_stride, height, width, class_index, start_frame)
 
-# Train the network
-learning_rate = 1e-8
-save_step = max_training_iters
-side_supervision = 3
-display_step = 10
-with tf.Graph().as_default():
-    with tf.device('/gpu:' + str(gpu_id)):
-        global_step = tf.Variable(0, name='global_step', trainable=False)
-        osvos.train_finetune(dataset, parent_path, side_supervision, learning_rate, logs_path, max_training_iters,
-                             save_step, display_step, global_step, iter_mean_grad=1, ckpt_name=sequence)
-        
-# TODO: we should also update stats for the teacher frame
+curr_frame = 0
+train_iter = 1
 
-# TODO: make sure it uses a new model for every parent frame
+while curr_frame < max_frames:
+    # train phase
+    print('------ training at frame', curr_frame, '---------')
+    learning_rate = 1e-8
+    save_step = max_training_iters
+    side_supervision = 3
+    display_step = 10
+    with tf.Graph().as_default():
+        with tf.device('/gpu:' + str(gpu_id)):
+            global_step = tf.Variable((train_iter - 1) * max_training_iters, name='global_step', trainable=False)
+            osvos.train_finetune(dataset, ckpt_path, side_supervision, learning_rate, logs_path, max_training_iters,
+                                 save_step, display_step, global_step, iter_mean_grad=1, ckpt_name=sequence)
 
-# Test the network
-with tf.Graph().as_default():
-    with tf.device('/gpu:' + str(gpu_id)):
-        checkpoint_path = os.path.join('models', sequence, sequence + '.ckpt-' + str(max_training_iters))
-        imgs, preds, labels = osvos.test(dataset, checkpoint_path, stats_path)
-        for i in range(len(imgs)):
-            img = imgs[i]
-            img = img[0]
-            pred = preds[i]
-            label = labels[i]
-            label = label[0]
-            label[label > 0] = 1
-            
-            labels_vals = np.reshape(label, (1, height, width))
-            pred_ext = np.reshape(pred, (1, height, width))
-            update_stats(labels_vals, pred_ext, class_tp, class_fp, class_fn,
-                         class_total, class_correct, 
-                         np.ones(labels_vals.shape, dtype=np.bool),
-                         None, i, True, None, per_frame_stats)
-            # TODO: the i above should be an actual counter
-            
-            vis_shape = (height, width, 3)
-            vis_labels = visualize_masks(pred_ext, 1, vis_shape,
-                                         num_classes=num_classes)
-            vis_labels = vis_labels[0]
-            labels_image = cv2.addWeighted(img, 0.5, vis_labels, 0.5, 0)
-            
-            # save an image
-            pil_image = Image.fromarray(labels_image)
-            pil_image.save('/home/stevenzc3/osvos/{:03d}.png'.format(i))
+    # test phase
+    print('------ training at frame', curr_frame, '---------')
+    with tf.Graph().as_default():
+        with tf.device('/gpu:' + str(gpu_id)):
+            ckpt_path = os.path.join(os.getcwd(), 'OSVOS-TensorFlow', 'models', sequence, sequence + '.ckpt-' + str(train_iter * max_training_iters))
+            imgs, preds, labels = osvos.test(dataset, ckpt_path, stats_path)
+            for i in range(len(imgs)):
+                img = imgs[i]
+                img = img[0]
+                pred = preds[i]
+                label = labels[i]
+                label = label[0]
+                label[label > 0] = 1
 
-# TODO: run this in a loop until we hit max_frames
+                labels_vals = np.reshape(label, (1, height, width))
+                pred_ext = np.reshape(pred, (1, height, width))
+                update_stats(labels_vals, pred_ext, class_tp, class_fp, class_fn,
+                             class_total, class_correct, 
+                             np.ones(labels_vals.shape, dtype=np.bool),
+                             None, curr_frame, True, None, per_frame_stats)
+                
+                curr_frame += 1
+    
+                # generate visualization
+#                 vis_shape = (height, width, 3)
+#                 vis_labels = visualize_masks(pred_ext, 1, vis_shape,
+#                                              num_classes=num_classes)
+#                 vis_labels = vis_labels[0]
+#                 labels_image = cv2.addWeighted(img, 0.5, vis_labels, 0.5, 0)
+#                 pil_image = Image.fromarray(labels_image)
+#                 pil_image.save('/home/stevenzc3/osvos/{:03d}.png'.format(curr_frame))
+    
+    # reset dataset
+    dataset.reset_cycle()
+    
+    train_iter += 1
+                
 
 np.save(stats_path, [per_frame_stats])

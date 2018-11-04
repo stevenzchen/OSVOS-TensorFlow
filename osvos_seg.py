@@ -8,6 +8,7 @@ This script assumes that it is being run from the JITNet root folder.
 """
 import os
 import sys
+import cv2
 from PIL import Image
 import numpy as np
 import tensorflow as tf
@@ -48,10 +49,21 @@ class_index = FLAGS.class_index
 
 gpu_id = 0
 
+# initialize metrics
+per_frame_stats = {}
+num_classes = 2 # foreground object and background
+
+class_correct = np.zeros(num_classes, np.float32)
+class_total = np.zeros(num_classes, np.float32)
+class_tp = np.zeros(num_classes, np.float32)
+class_fp = np.zeros(num_classes, np.float32)
+class_fn = np.zeros(num_classes, np.float32)
+class_iou = np.zeros(num_classes, np.float32)
+
 # Train parameters
 parent_path = os.path.join(os.getcwd(), 'OSVOS-TensorFlow', 'models', 'OSVOS_parent', 'OSVOS_parent.ckpt-50000')
 logs_path = os.path.join(os.getcwd(), 'OSVOS-TensorFlow', 'models', sequence)
-max_training_iters = 500 # TODO: should this be higher?
+max_training_iters = 500 # TODO: this defaults to 500
 
 # initialize dataset
 dataset = osvos_dataset.OSVOS_Dataset(sequence, dataset_dir, sequence_limit, training_stride, height, width, class_index, start_frame)
@@ -75,8 +87,33 @@ with tf.Graph().as_default():
 with tf.Graph().as_default():
     with tf.device('/gpu:' + str(gpu_id)):
         checkpoint_path = os.path.join('models', sequence, sequence + '.ckpt-' + str(max_training_iters))
-        preds, labels = osvos.test(dataset, checkpoint_path, stats_path)
-
-# TODO: save + display predictions and labels
+        imgs, preds, labels = osvos.test(dataset, checkpoint_path, stats_path)
+        for i in range(len(imgs)):
+            img = imgs[i]
+            img = img[0]
+            pred = preds[i]
+            label = labels[i]
+            label = label[0]
+            label[label > 0] = 1
+            
+            labels_vals = np.reshape(label, (1, height, width))
+            pred_ext = np.reshape(pred, (1, height, width))
+            update_stats(labels_vals, pred_ext, class_tp, class_fp, class_fn,
+                         class_total, class_correct, 
+                         np.ones(labels_vals.shape, dtype=np.bool),
+                         None, i, True, None, per_frame_stats)
+            # TODO: the i above should be an actual counter
+            
+            vis_shape = (height, width, 3)
+            vis_labels = visualize_masks(pred_ext, 1, vis_shape,
+                                         num_classes=num_classes)
+            vis_labels = vis_labels[0]
+            labels_image = cv2.addWeighted(img, 0.5, vis_labels, 0.5, 0)
+            
+            # save an image
+            pil_image = Image.fromarray(labels_image)
+            pil_image.save('/home/stevenzc3/osvos/{:03d}.png'.format(i))
 
 # TODO: run this in a loop until we hit max_frames
+
+np.save(stats_path, [per_frame_stats])

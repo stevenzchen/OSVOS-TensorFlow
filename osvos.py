@@ -640,6 +640,7 @@ def test(dataset, checkpoint_file, result_path, config=None):
     # Create a saver to load the network
     saver = tf.train.Saver([v for v in tf.global_variables() if '-up' not in v.name and '-cr' not in v.name])
 
+    imgs = []
     preds = []
     labels = []
     
@@ -647,11 +648,10 @@ def test(dataset, checkpoint_file, result_path, config=None):
         sess.run(tf.global_variables_initializer())
         sess.run(interp_surgery(tf.global_variables()))
         saver.restore(sess, checkpoint_file)
-        if not os.path.exists(result_path):
-            os.makedirs(result_path)
         for frame in range(0, dataset.get_test_size()):
             img, label = dataset.next_batch(batch_size, 'test')
             image = preprocess_img(img[0])
+            imgs.append(img)
             res = sess.run(probabilities, feed_dict={input_image: image})
             res_np = res.astype(np.float32)[0, :, :, 0] > 162.0/255.0
             res_np = res_np.astype(np.float32)
@@ -661,7 +661,7 @@ def test(dataset, checkpoint_file, result_path, config=None):
             
             print('Predicted for frame ', frame)
             
-    return preds, labels
+    return imgs, preds, labels
 
 
 

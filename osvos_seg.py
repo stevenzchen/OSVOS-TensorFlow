@@ -90,7 +90,7 @@ while curr_frame < max_frames:
                                  save_step, display_step, global_step, iter_mean_grad=1, ckpt_name=sequence)
 
     # test phase
-    print('------ training at frame', curr_frame, '---------')
+    print('------ testing at frame', curr_frame, '---------')
     with tf.Graph().as_default():
         with tf.device('/gpu:' + str(gpu_id)):
             ckpt_path = os.path.join(os.getcwd(), 'OSVOS-TensorFlow', 'models', sequence, sequence + '.ckpt-' + str(train_iter * max_training_iters))
